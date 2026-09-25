@@ -1,0 +1,1 @@
+INSERT INTO sys_menu(menu_id,menu_name,parent_id,order_num,path,component,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time) SELECT 5010,'经营分析报表',5000,10,'reports','hexu/reports/index',1,0,'C','0','0','hexu:reports:view','chart','admin',NOW() WHERE NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_id=5010);

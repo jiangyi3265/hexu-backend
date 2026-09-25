@@ -1,0 +1,21 @@
+server:
+  address: 127.0.0.1
+  port: 8088
+spring:
+  datasource:
+    druid:
+      master:
+        url: jdbc:mysql://localhost:3306/hexu_integration?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=UTC&forceConnectionTimeZoneToSession=true
+        connectionInitSqls:
+          - "SET time_zone = '+00:00'"
+  redis:
+    database: 9
+token:
+  secret: ${HEXU_TOKEN_SECRET}
+hexu:
+  dev-key: ${HEXU_DEV_KEY}
+  sensitive-key: ${HEXU_DEV_KEY}
+
+  backup:
+    enabled: true
+    cron: "0 0 3 * * *"
