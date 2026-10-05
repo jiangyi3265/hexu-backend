@@ -19,4 +19,10 @@ public class HexuCrossPurchase {
   }return null;
  }
  public int rank(Actor a,long shop,String sku){Map<String,Object>d=find(a,shop,sku==null?Collections.emptyMap():Collections.singletonMap(sku,1),false);return d==null?0:(int)number(d,"authorizedRank");}
+ @SuppressWarnings("unchecked") public long remaining(Map<String,Object> authorization,String sku){
+  Map<String,Object> body=db.parse(authorization.get("body_json"));
+  long limit=0;for(Map<String,Object> item:(List<Map<String,Object>>)body.get("items"))if(sku.equals(str(item,"skuId"))){limit=number(item,"qty");break;}
+  long used=db.jdbc().queryForObject("select coalesce(sum(l.qty),0) from hx_order_line l join hx_order o on o.id=l.order_id where o.cross_authorization_id=? and o.status<>'CANCELLED' and l.sku_id=?",Long.class,authorization.get("id"),sku);
+  return Math.max(0,limit-used);
+ }
 }

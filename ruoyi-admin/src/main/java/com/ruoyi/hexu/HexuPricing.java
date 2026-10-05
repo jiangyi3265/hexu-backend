@@ -8,7 +8,16 @@ import static com.ruoyi.hexu.BusinessException.require;
 public class HexuPricing {
  private final HexuStore db;
  public HexuPricing(HexuStore db){this.db=db;}
- private Set<String> values(Object raw){Set<String>s=new HashSet<>();if(raw instanceof Collection)for(Object v:(Collection<?>)raw)s.add(String.valueOf(v));else if(raw!=null)for(String v:raw.toString().split(","))if(!v.trim().isEmpty()&&!"全部商品".equals(v)&&!"全部用户".equals(v))s.add(v.trim());return s;}
+ private Set<String> values(Object raw){
+  Set<String> ids=new HashSet<>();
+  if(raw==null)return ids;
+  Collection<?> entries=raw instanceof Collection?(Collection<?>)raw:Arrays.asList(raw.toString().split(","));
+  for(Object entry:entries){
+   String value=String.valueOf(entry).trim();
+   if(!value.isEmpty()&&!"全部商品".equals(value)&&!"全部用户".equals(value))ids.add(value);
+  }
+  return ids;
+ }
  private List<Integer> eligible(List<Map<String,Object>> lines,Map<String,Object> rule){Set<String> ids=values(rule.get("skuIds"));List<Integer> out=new ArrayList<>();for(int i=0;i<lines.size();i++){Map<String,Object>s=(Map<String,Object>)lines.get(i).get("sku");if(ids.isEmpty()||ids.contains(str(s,"id")))out.add(i);}return out;}
  private long sum(long[] paid,List<Integer> indices){long n=0;for(int i:indices)n=Math.addExact(n,paid[i]);return n;}
  private void allocate(long[] paid,List<Integer> indices,long discount){long total=sum(paid,indices);require(discount>=0&&discount<=total,"优惠金额无效");if(discount==0)return;long accum=0,previous=0;for(int i:indices){accum+=paid[i];long target=SettlementCalculator.proportion(discount,accum,total);paid[i]-=target-previous;previous=target;}}
@@ -26,7 +35,7 @@ public class HexuPricing {
   if(!"BUNDLE".equals(type)){Set<String>qualifiers=values(r.get("qualifierSkuIds"));for(int i=0;i<lines.size();i++)if(!affected.contains(i)&&(qualifiers.isEmpty()||qualifiers.contains(str((Map<String,Object>)lines.get(i).get("sku"),"id"))))affected.add(i);}
   return map("discount",discount,"qty",units,"indices",affected);
  }
- private void audience(Actor a,long shop,Map<String,Object>r){Set<String> members=values(r.get("memberIds"));require(members.isEmpty()||members.contains(String.valueOf(a.id)),"不在活动指定人群内");if("NEWCOMER".equals(str(r,"type")))require(db.jdbc().queryForObject("select count(*) from hx_order where shop_id=? and buyer_id=? and status not in ('UNPAID','CANCELLED')",Long.class,shop,a.id)==0,"新人券仅限本商城首单使用");if("MEMBER".equals(str(r,"type")))require(db.agent(a.id,shop)!=null,"会员价格仅适用有效代理身份");}
+ void audience(Actor a,long shop,Map<String,Object>r){Set<String> members=values(r.get("memberIds"));require(members.isEmpty()||members.contains(String.valueOf(a.id)),"不在活动指定人群内");if("NEWCOMER".equals(str(r,"type")))require(db.jdbc().queryForObject("select count(*) from hx_order where shop_id=? and buyer_id=? and status not in ('UNPAID','CANCELLED')",Long.class,shop,a.id)==0,"新人券仅限本商城首单使用");if("MEMBER".equals(str(r,"type")))require(db.agent(a.id,shop)!=null,"会员价格仅适用有效代理身份");}
  public Map<String,Object> calculate(Actor a,long shop,List<Map<String,Object>>lines,Map<String,Object>b,boolean wholesale,boolean lock){
   long[] paid=new long[lines.size()];List<Integer>all=new ArrayList<>();long subtotal=0;for(int i=0;i<lines.size();i++){paid[i]=number(lines.get(i),"amount");subtotal=Math.addExact(subtotal,paid[i]);all.add(i);}
   Map<String,Object>groupPlan=new HexuGroupPurchase(db).plan(a,shop,b,lock);if(!groupPlan.isEmpty()){require(!wholesale&&paid.length==1,"拼团不适用批发采购");long price=number(groupPlan,"price");require(price<=subtotal,"拼团价已高于当前零售价，请重新配置活动");return map("subtotal",subtotal,"discount",subtotal-price,"couponDiscount",0,"promotionDiscount",subtotal-price,"pointsUsed",0,"pointsDiscount",0,"pointsScope",0,"pointsPerYuan",100,"deductionPercent",0,"freight",0,"productPaid",price,"total",price,"paidLines",new long[]{price},"coupon",null,"promotions",Collections.emptyList());}
@@ -50,10 +59,12 @@ public class HexuPricing {
   return map("subtotal",subtotal,"discount",discount,"couponDiscount",couponDiscount,"promotionDiscount",promotionDiscount,"pointsUsed",points,"pointsDiscount",cash,"pointsScope",scope,"pointsPerYuan",rate,"deductionPercent",cap,"freight",freight,"productPaid",productPaid,"total",productPaid+freight,"paidLines",paid,"coupon",coupon,"promotions",applied);
  }
  public static void validate(String kind,Map<String,Object>b){
+  if(Arrays.asList("promotion_rule","bundle").contains(kind))require(!str(b,"name").trim().isEmpty()&&str(b,"name").trim().length()<=80,"活动名称须为1至80字");
+  if(Arrays.asList("promotion_rule","bundle").contains(kind))for(String key:Arrays.asList("price","threshold","discount","rateBps","quantity","perMember","startsAt","expiresAt"))require(!b.containsKey(key)||b.get(key)!=null,key+"不能为null，请填写有效数字（明确0限量表示不限）");
   require(!b.containsKey("priority")||number(b,"priority")>=0&&number(b,"priority")<=100000,"活动优先级须为0至100000");require(!b.containsKey("maxSetsPerOrder")||number(b,"maxSetsPerOrder")>0&&number(b,"maxSetsPerOrder")<=1000,"每单套数须为1至1000");
   if("bundle".equals(kind)){require(Arrays.asList("BUNDLE","ADDON","GIFT","EXCHANGE").contains(str(b,"type")),"请选择套餐、加价购、满赠或换购类型");List<Map<String,Object>>list=items(b,"items");require(!list.isEmpty()&&list.size()<=20,"组合商品须为1至20项");Set<String>seen=new HashSet<>();for(Map<String,Object>i:list)require(!str(i,"skuId").isEmpty()&&seen.add(str(i,"skuId"))&&number(i,"qty")>0&&number(i,"qty")<=1000,"组合商品编号和数量无效");require(number(b,"price")>=0&&("GIFT".equals(str(b,"type"))||number(b,"price")>0),"套餐或换购价格须大于零");require(number(b,"threshold")>=0&&number(b,"startsAt")<number(b,"expiresAt")&&number(b,"expiresAt")>System.currentTimeMillis(),"组合门槛或有效时间不合法");require(number(b,"quantity")>=0&&number(b,"perMember")>=0,"组合限量不能为负数");}
   if("TIER".equals(str(b,"type"))){List<Map<String,Object>>tiers=items(b,"tiers");require(!tiers.isEmpty()&&tiers.size()<=20,"请配置1至20档阶梯价");Set<Long>thresholds=new HashSet<>();for(Map<String,Object>tier:tiers)require(number(tier,"threshold")>=0&&thresholds.add(number(tier,"threshold"))&&number(tier,"rateBps")>0&&number(tier,"rateBps")<10000,"阶梯门槛不能重复且折扣必须有效");}
-  if("coupon".equals(kind)){String type=str(b,"type");require(type.isEmpty()||Arrays.asList("FULL_REDUCTION","DISCOUNT","PRODUCT","NEWCOMER","TARGETED").contains(type),"优惠券类型无效");if("DISCOUNT".equals(type))require(number(b,"rateBps")>0&&number(b,"rateBps")<10000,"折扣率须在0至10000基点之间");else require(number(b,"discount")>0&&number(b,"threshold")>=number(b,"discount"),"优惠金额与门槛不合法");require(number(b,"expiresAt")>System.currentTimeMillis()&&number(b,"quantity")>0,"优惠券期限和数量不合法");}
+  if("coupon".equals(kind)){if(b.containsKey("name"))require(!str(b,"name").trim().isEmpty()&&str(b,"name").trim().length()<=80,"优惠券名称须为1至80字");String type=str(b,"type");require(type.isEmpty()||Arrays.asList("FULL_REDUCTION","DISCOUNT","PRODUCT","NEWCOMER","TARGETED").contains(type),"优惠券类型无效");if("DISCOUNT".equals(type))require(number(b,"rateBps")>0&&number(b,"rateBps")<10000,"折扣率须在0至10000基点之间");else require(number(b,"discount")>0&&number(b,"threshold")>=number(b,"discount"),"优惠金额与门槛不合法");require(number(b,"expiresAt")>System.currentTimeMillis()&&number(b,"quantity")>0,"优惠券期限和数量不合法");}
   if("promotion_rule".equals(kind)){require(Arrays.asList("FULL_REDUCTION","FULL_DISCOUNT","LIMITED","FLASH","MEMBER","TIER").contains(str(b,"type")),"请选择受支持的价格促销类型");require(number(b,"startsAt")<number(b,"expiresAt")&&number(b,"expiresAt")>System.currentTimeMillis(),"活动时间无效");require(number(b,"threshold")>=0&&number(b,"quantity")>=0&&number(b,"perMember")>=0,"活动门槛或限购参数不能为负数");if("FULL_REDUCTION".equals(str(b,"type")))require(number(b,"discount")>0&&number(b,"threshold")>=number(b,"discount"),"满减金额无效");else if(!"TIER".equals(str(b,"type")))require(number(b,"rateBps")>0&&number(b,"rateBps")<10000,"折扣率须在0至10000基点之间");}
  }
 }

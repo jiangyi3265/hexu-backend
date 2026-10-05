@@ -11,7 +11,16 @@ public final class HexuLinkCampaign {
  public HexuLinkCampaign(HexuStore db){this.db=db;}
  private Set<String> skus(Map<String,Object>b){Set<String>s=new LinkedHashSet<>();Object raw=b.get("skuIds");if(raw instanceof Collection)for(Object v:(Collection<?>)raw)s.add(String.valueOf(v));else for(String v:str(b,"skuIds").split(","))if(!v.trim().isEmpty())s.add(v.trim());return s;}
  public void validate(Actor actor,long shop,Map<String,Object>b){
-  db.manage(actor,shop,"OWNER");if(!bool(b,"enabled"))return;
+  validate(actor,shop,b,null);
+ }
+ public void validate(Actor actor,long shop,Map<String,Object>b,Map<String,Object>old){
+  db.manage(actor,shop,"OWNER");
+  String confirmation=str(b,"confirmationFile");
+  if(!confirmation.isEmpty()){
+   require(b.get("confirmationFile") instanceof String,"书面确认图片格式错误");
+   HexuAttachmentAssociation.verify(db,actor,shop,confirmation,HexuAttachmentAssociation.retained(db,old,shop,"link_campaign","confirmationFile"));
+  }
+  if(!bool(b,"enabled"))return;
   require(!str(b,"name").trim().isEmpty()&&bool(b,"writtenConfirmed"),"启用前请填写活动名称并确认书面运营规则");
   require(number(b,"directCount")==2&&number(b,"entryFee")==0,"有效直推人数必须为2且不得收取入门费");
   require(Arrays.asList("KEEP_RELATION","EXIT_KEEP_TEAM","EXIT_PASS_ONE").contains(str(b,"relationshipMode")),"请选择明确的营销关系处置方式");
@@ -20,7 +29,7 @@ public final class HexuLinkCampaign {
   require(number(b,"rewardCap")>0&&number(b,"maxRewardPerOrder")>0&&number(b,"totalRewardBps")>0&&number(b,"totalRewardBps")<=10000,"必须配置个人累计上限及包含原三级收益的单笔总奖励上限");
   boolean reward=false;for(String name:Arrays.asList("direct","order","peer")){long fixed=number(b,name+"Reward"),bps=number(b,name+"Bps");require(fixed>=0&&fixed<=9000000000000L&&bps>=0&&bps<=10000&&(fixed==0||bps==0),"每项奖励只能选择固定金额或比例");reward|=fixed>0||bps>0;}require(reward,"至少启用一个真实订单奖励项目");
   require(!skus(b).isEmpty(),"请明确选择参与商品");for(String sku:skus(b))db.one("select id from hx_sku where id=? and shop_id=?",sku,shop);
-  require(db.optional("select id from hx_attachment where id=? and shop_id=? and member_id=?",str(b,"confirmationFile"),shop,actor.id)!=null,"请上传属于当前操作人的书面确认图片");
+  require(!confirmation.isEmpty(),"请上传书面确认图片");
  }
  private Map<String,Object> current(long shop){Map<String,Object>d=db.optional("select * from hx_document where shop_id=? and kind='link_campaign' and status='ACTIVE' order by updated_at desc,id desc limit 1",shop);if(d==null)return Collections.emptyMap();Map<String,Object>b=db.parse(d.get("body_json"));long now=System.currentTimeMillis();if(!bool(b,"enabled")||number(b,"startsAt")>now||number(b,"expiresAt")<=now)return Collections.emptyMap();b.put("campaignId",str(b,"campaignId").isEmpty()?d.get("id"):b.get("campaignId"));b.put("versionId",d.get("id"));return b;}
  private void lock(String campaign){db.one("select id from hx_document where id=? for update",campaign);}

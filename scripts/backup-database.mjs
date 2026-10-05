@@ -8,10 +8,20 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')
 const runtime=path.join(root,'.hexu-local')
 const source='hexu_integration'
 const config=await fs.readFile(path.join(root,'ruoyi-admin/src/main/resources/application-druid.yml'),'utf8')
-const user=config.match(/^\s+username:\s*(.+)$/m)[1].trim().replace(/^['"]|['"]$/g,'')
-const password=config.match(/^\s+password:\s*(.*)$/m)[1].trim().replace(/^['"]|['"]$/g,'')
+function resolveSpringValue(raw){
+ const value=raw.trim().replace(/^['"]|['"]$/g,'')
+ const match=value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}$/)
+ if(!match)return value
+ return process.env[match[1]] ?? match[2] ?? ''
+}
+const user=resolveSpringValue(config.match(/^\s+username:\s*(.+)$/m)[1])
+const password=resolveSpringValue(config.match(/^\s+password:\s*(.*)$/m)[1])
+const configuredPort=config.match(/jdbc:mysql:\/\/[^/]+:(?:\$\{HEXU_MYSQL_PORT:(\d+)\}|(\d+))\//)
+if(!configuredPort)throw Error('Database port is not configured in application-druid.yml')
+const port=Number(process.env.HEXU_MYSQL_PORT ?? configuredPort[1] ?? configuredPort[2])
+if(!Number.isInteger(port)||port<1||port>65535)throw Error('Invalid database port')
 const mysqlDir=process.env.HEXU_MYSQL_BIN||''
-function invoke(program,args,input){const r=spawnSync(path.join(mysqlDir,program+(process.platform==='win32'?'.exe':'')),['-u',user,'-h','127.0.0.1','--default-character-set=utf8mb4',...args],{input,encoding:'utf8',windowsHide:true,env:{...process.env,MYSQL_PWD:password},maxBuffer:256*1024*1024,timeout:120000});if(r.status!==0)throw Error(program+' failed: '+(r.error?.message||r.stderr));return r.stdout}
+function invoke(program,args,input){const r=spawnSync(path.join(mysqlDir,program+(process.platform==='win32'?'.exe':'')),['-u',user,'-h','127.0.0.1','-P',String(port),'--default-character-set=utf8mb4',...args],{input,encoding:'utf8',windowsHide:true,env:{...process.env,MYSQL_PWD:password},maxBuffer:256*1024*1024,timeout:120000});if(r.status!==0)throw Error(program+' failed: '+(r.error?.message||r.stderr));return r.stdout}
 function sql(database,query){return invoke('mysql',['-N',database],"SET time_zone='+00:00';\n"+query).trim()}
 function manifest(database){const tables=sql(database,'SHOW TABLES;').split(/\r?\n/).filter(Boolean);const records={};for(const table of tables){if(!/^[a-zA-Z0-9_]+$/.test(table))throw Error('Unexpected table name');const count=Number(sql(database,'SELECT COUNT(*) FROM '+table));const checksum=sql(database,'CHECKSUM TABLE '+table+' EXTENDED;').split('\t').at(-1);records[table]={count,checksum}}return records}
 await fs.mkdir(runtime,{recursive:true})

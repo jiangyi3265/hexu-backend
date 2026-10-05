@@ -5,7 +5,7 @@ spring:
   datasource:
     druid:
       master:
-        url: jdbc:mysql://localhost:3306/hexu_integration?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=UTC&forceConnectionTimeZoneToSession=true
+        url: jdbc:mysql://localhost:${HEXU_MYSQL_PORT:3307}/hexu_integration?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&forceConnectionTimeZoneToSession=true
         connectionInitSqls:
           - "SET time_zone = '+00:00'"
   redis:
@@ -13,8 +13,48 @@ spring:
 token:
   secret: ${HEXU_TOKEN_SECRET}
 hexu:
+  # Explicit local-only simulation. Keep off until a local test run opts in.
+  sandbox:
+    enabled: ${HEXU_SANDBOX_ENABLED:false}
   dev-key: ${HEXU_DEV_KEY}
   sensitive-key: ${HEXU_DEV_KEY}
+  wechat:
+    app-id: ${HEXU_WECHAT_APP_ID:}
+    app-secret: ${HEXU_WECHAT_APP_SECRET:}
+  wechat-pay:
+    enabled: ${HEXU_WECHAT_PAY_ENABLED:false}
+    notify-url: ${HEXU_WECHAT_PAY_NOTIFY_URL:}
+    transfer:
+      # Must be approved in the merchant platform for the actual direct or
+      # partner merchant. Never hard-code an unapproved scene ID or report data.
+      scene-id: ${HEXU_WECHAT_TRANSFER_SCENE_ID:}
+      scene-report-infos: ${HEXU_WECHAT_TRANSFER_SCENE_REPORT_INFOS:}
+    direct:
+      merchant-id: ${HEXU_WECHAT_DIRECT_MCH_ID:}
+      merchant-serial: ${HEXU_WECHAT_DIRECT_SERIAL:}
+      private-key-path: ${HEXU_WECHAT_DIRECT_PRIVATE_KEY_PATH:}
+      public-key-path: ${HEXU_WECHAT_DIRECT_PUBLIC_KEY_PATH:}
+      public-key-id: ${HEXU_WECHAT_DIRECT_PUBLIC_KEY_ID:}
+      api-v3-key: ${HEXU_WECHAT_DIRECT_API_V3_KEY:}
+    partner:
+      merchant-id: ${HEXU_WECHAT_PARTNER_MCH_ID:}
+      merchant-serial: ${HEXU_WECHAT_PARTNER_SERIAL:}
+      private-key-path: ${HEXU_WECHAT_PARTNER_PRIVATE_KEY_PATH:}
+      public-key-path: ${HEXU_WECHAT_PARTNER_PUBLIC_KEY_PATH:}
+      public-key-id: ${HEXU_WECHAT_PARTNER_PUBLIC_KEY_ID:}
+      api-v3-key: ${HEXU_WECHAT_PARTNER_API_V3_KEY:}
+  # Offline bank remittance is an operational exception path. Keep disabled
+  # by default; enabling it requires an approved settlement account and the
+  # finance evidence/dual-control workflow in the admin console.
+  bank-payout:
+    enabled: ${HEXU_BANK_PAYOUT_ENABLED:false}
+    require-dual-control: ${HEXU_BANK_PAYOUT_REQUIRE_DUAL_CONTROL:true}
+  logistics:
+    enabled: ${HEXU_LOGISTICS_ENABLED:false}
+    endpoint: ${HEXU_LOGISTICS_ENDPOINT:}
+    token: ${HEXU_LOGISTICS_TOKEN:}
+  fulfillment:
+    require-pick: true
 
   backup:
     enabled: true

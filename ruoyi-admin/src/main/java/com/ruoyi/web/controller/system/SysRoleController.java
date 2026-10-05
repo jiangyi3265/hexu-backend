@@ -22,6 +22,7 @@ import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.framework.web.service.SysPermissionService;
@@ -232,6 +233,7 @@ public class SysRoleController extends BaseController
     @PutMapping("/authUser/cancelAll")
     public AjaxResult cancelAuthUserAll(Long roleId, Long[] userIds)
     {
+        checkBulkSelection(roleId, userIds);
         return toAjax(roleService.deleteAuthUsers(roleId, userIds));
     }
 
@@ -243,8 +245,21 @@ public class SysRoleController extends BaseController
     @PutMapping("/authUser/selectAll")
     public AjaxResult selectAuthUserAll(Long roleId, Long[] userIds)
     {
+        checkBulkSelection(roleId, userIds);
         roleService.checkRoleDataScope(roleId);
         return toAjax(roleService.insertAuthUsers(roleId, userIds));
+    }
+
+    private void checkBulkSelection(Long roleId, Long[] userIds)
+    {
+        if (roleId == null || roleId <= 0)
+        {
+            throw new ServiceException("请选择有效角色");
+        }
+        if (userIds == null || userIds.length == 0)
+        {
+            throw new ServiceException("请至少选择一位用户");
+        }
     }
 
     /**

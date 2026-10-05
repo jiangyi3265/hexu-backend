@@ -72,6 +72,8 @@ powershell -NoProfile -File scripts/hexu-local.ps1 -Action run
 
 init 仅允许创建空的 hexu_integration，包含系统表和明确标注的演示商城数据；检测到已有业务表会拒绝覆盖。已有数据库不要再次 init。migrate 执行增量迁移，run 自动生成本地随机开发密钥，启动 `druid,hexu-dev` 配置；服务地址为 http://127.0.0.1:8088。管理端用户名为 admin，密码为上一步自行输入的密码。
 
+跨域来源默认只允许本机 H5 与管理端。分域部署时，在启动前将实际前端 Origin（含协议和端口）写入 `HEXU_CORS_ALLOWED_ORIGINS`，多个地址用英文逗号分隔；同源部署无需配置。不要使用 `*`。
+
 查看商城列表：
 
 ```powershell

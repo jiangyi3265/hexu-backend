@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.annotation.DataScope;
@@ -399,6 +400,7 @@ public class SysRoleServiceImpl implements ISysRoleService
     @Override
     public int deleteAuthUsers(Long roleId, Long[] userIds)
     {
+        validateAuthUsers(roleId, userIds);
         return userRoleMapper.deleteUserRoleInfos(roleId, userIds);
     }
 
@@ -410,8 +412,10 @@ public class SysRoleServiceImpl implements ISysRoleService
      * @return 结果
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int insertAuthUsers(Long roleId, Long[] userIds)
     {
+        validateAuthUsers(roleId, userIds);
         // 新增用户与角色管理
         List<SysUserRole> list = new ArrayList<SysUserRole>();
         for (Long userId : userIds)
@@ -421,6 +425,37 @@ public class SysRoleServiceImpl implements ISysRoleService
             ur.setRoleId(roleId);
             list.add(ur);
         }
-        return userRoleMapper.batchUserRole(list);
+        try
+        {
+            return userRoleMapper.batchUserRole(list);
+        }
+        catch (DuplicateKeyException e)
+        {
+            throw new ServiceException("部分用户已关联该角色，请刷新列表后重试");
+        }
+    }
+
+    private void validateAuthUsers(Long roleId, Long[] userIds)
+    {
+        if (roleId == null || roleId <= 0)
+        {
+            throw new ServiceException("请选择有效角色");
+        }
+        if (userIds == null || userIds.length == 0)
+        {
+            throw new ServiceException("请至少选择一位用户");
+        }
+        Set<Long> seen = new HashSet<>();
+        for (Long userId : userIds)
+        {
+            if (userId == null || userId <= 0)
+            {
+                throw new ServiceException("请选择有效用户");
+            }
+            if (!seen.add(userId))
+            {
+                throw new ServiceException("选择的用户不能重复");
+            }
+        }
     }
 }

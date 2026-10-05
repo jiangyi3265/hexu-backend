@@ -11,6 +11,16 @@ INSERT INTO hx_rule(cloud_bps,center_bps,owner_bps,effective_at,created_by) VALU
 INSERT INTO hx_points(shop_id,member_id,available) VALUES(0,201,2480),(0,202,100),(2,201,860),(2,202,100);
 INSERT INTO hx_wallet(shop_id,member_id,available) VALUES(2,101,0),(2,102,0),(2,103,0),(2,104,0);
 INSERT INTO hx_document(id,shop_id,member_id,kind,status,body_json) VALUES('ADDR201',2,201,'address','ACTIVE','{"name":"张三","phone":"13888881234","region":"浙江省 杭州市 西湖区","detail":"文三路258号数码大厦1208室","primary":true,"consent":true}'),('BANK104',2,104,'settlement_account','APPROVED','{"channel":"BANK","masked":"工商银行（3287）"}');
+-- Storefront copy is seeded as a published tenant document.  Operators can
+-- replace every field (including FILE image ids) from the admin decoration tab.
+INSERT INTO hx_document(id,shop_id,member_id,kind,status,body_json) VALUES
+('DECORATION1',1,0,'decoration','ACTIVE','{"name":"公司直营商城","brandName":"禾序商贸","badge":"公司直营","slogan":"正品好货 · 品质生活","searchPlaceholder":"搜索商品、品牌、生活好物","banners":[{"image":"hero","title":"自然之选\\n让生活更美好","subtitle":"精选家居好物","buttonText":"立即选购","target":"M04","sort":1,"enabled":true}],"categories":[{"name":"居家生活","icon":"home","target":"M04","sort":1,"enabled":true},{"name":"美食饮品","icon":"gift","target":"M04","sort":2,"enabled":true},{"name":"个护清洁","icon":"leaf","target":"M04","sort":3,"enabled":true},{"name":"数码家电","icon":"grid","target":"M04","sort":4,"enabled":true},{"name":"运动户外","icon":"bag","target":"M04","sort":5,"enabled":true}],"homeProducts":["cup","sofa","paper","oil"]}'),
+('DECORATION2',2,0,'decoration','ACTIVE','{"name":"安溪禾序商城","brandName":"禾序商贸","slogan":"安溪好物 · 品质生活在身边","dealerSearchPlaceholder":"搜索本店商品","banners":[{"image":"tea","title":"安吉好物\\n品质生活在身边","subtitle":"精选日用百货 · 服务本地家庭","buttonText":"领券下单","target":"M55","sort":1,"enabled":true}],"categories":[{"name":"领券中心","icon":"coupon","target":"M55","sort":1,"enabled":true},{"name":"新品上架","icon":"leaf","target":"M04","sort":2,"enabled":true},{"name":"热销推荐","icon":"star","target":"M56","sort":3,"enabled":true},{"name":"生活家居","icon":"home","target":"M04","sort":4,"enabled":true},{"name":"个人护理","icon":"bag","target":"M04","sort":5,"enabled":true}],"homeProducts":["paper","oil","cup","towel"]}');
 
 UPDATE hx_sku SET point_price=2800 WHERE id='cup' AND shop_id<>900;
 UPDATE hx_sku SET point_price=1800 WHERE id='towel' AND shop_id<>900;
+INSERT INTO hx_sku_detail(shop_id,sku_id,category)
+SELECT shop_id,id,'生活日用' FROM hx_sku WHERE id IN ('cup','towel') AND shop_id<>900;
+INSERT INTO hx_document(id,shop_id,member_id,kind,status,body_json)
+SELECT CONCAT('POINT_CATEGORY_',id),id,0,'category','ACTIVE','{"items":["生活日用","办公用品","家居电器"]}'
+FROM hx_shop WHERE kind<>'WHOLESALE';

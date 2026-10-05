@@ -6,7 +6,7 @@ spring:
         druid:
             # 主库数据源
             master:
-                url: jdbc:mysql://localhost:3306/hexu_integration?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8
+                url: jdbc:mysql://localhost:${HEXU_MYSQL_PORT:3307}/hexu_integration?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8
                 username: REPLACE_WITH_LOCAL_DATABASE_USERNAME
                 password: REPLACE_WITH_LOCAL_DATABASE_PASSWORD
             # 从库数据源

@@ -32,9 +32,15 @@ public class HexuStore {
     public void message(long shop,long member,String title,String ref){new HexuNotifications(this).emit(shop,member,HexuNotifications.classify(title),title,ref);}
     public void defective(long shop,String sku,int qty,String reason,String ref){require(qty>=0,"残次入库数量不能为负数");if(qty==0)return;require(jdbc.update("update hx_sku set defective=defective+? where shop_id=? and id=?",qty,shop,sku)==1,"残次商品不存在");jdbc.update("insert into hx_inventory_log(shop_id,sku_id,available_delta,locked_delta,defective_delta,reason,reference_id) values(?,?,0,0,?,?,?)",shop,sku,qty,reason,ref);}
     public void inventory(long shop,String sku,int available,int locked,String reason,String ref){int n=jdbc.update("update hx_sku set available=available+?,locked=locked+? where shop_id=? and id=? and available+?>=0 and locked+?>=0",available,locked,shop,sku,available,locked);require(n==1,"库存不足或库存锁定已失效");jdbc.update("insert into hx_inventory_log(shop_id,sku_id,available_delta,locked_delta,reason,reference_id) values(?,?,?,?,?,?)",shop,sku,available,locked,reason,ref);if(available<0){Map<String,Object>item=one("select k.available,k.warning_qty,k.name,s.owner_id from hx_sku k join hx_shop s on s.id=k.shop_id where k.shop_id=? and k.id=?",shop,sku);if(number(item,"available")<=number(item,"warning_qty")&&number(item,"available")-available>number(item,"warning_qty"))new HexuNotifications(this).emit(shop,number(item,"owner_id"),"INVENTORY_LOW",str(item,"name")+" 可售库存低于预警值",sku);}}
-    public void ensureWallet(long shop,long member){jdbc.update("insert into hx_wallet(shop_id,member_id) select ?,? where not exists(select 1 from hx_wallet where shop_id=? and member_id=?)",shop,member,shop,member);}
+    public void ensureWallet(long shop,long member){
+        jdbc.update("insert into hx_wallet(shop_id,member_id) values(?,?) on duplicate key update shop_id=shop_id",shop,member);
+    }
     public void ledger(long shop,long member,long amount,String kind,String reference){ensureWallet(shop,member);jdbc.update("update hx_wallet set available=available+? where shop_id=? and member_id=?",amount,shop,member);jdbc.update("insert into hx_ledger(shop_id,member_id,category,amount,reference_id) values(?,?,?,?,?)",shop,member,kind,amount,reference);}
-    public void ensurePoints(long shop,long member){jdbc.update("insert into hx_points(shop_id,member_id) select ?,? where not exists(select 1 from hx_points where shop_id=? and member_id=?)",shop,member,shop,member);}
+    public void ensurePoints(long shop,long member){
+        // An INSERT ... SELECT NOT EXISTS takes a shared lock on an existing row.
+        // Parallel account reads then deadlock while upgrading that lock in refresh().
+        jdbc.update("insert into hx_points(shop_id,member_id) values(?,?) on duplicate key update shop_id=shop_id",shop,member);
+    }
     @org.springframework.transaction.annotation.Transactional public void points(long shop,long member,long delta,String kind,String ref,boolean reclaim){new HexuPointBatches(this).mutate(shop,member,delta,kind,ref,reclaim,null);}
     @org.springframework.transaction.annotation.Transactional public void awardPoints(long shop,long member,long amount,String kind,String ref,long expiryDays){new HexuPointBatches(this).mutate(shop,member,amount,kind,ref,false,expiryDays);}
     @org.springframework.transaction.annotation.Transactional public Map<String,Object> pointAccount(long shop,long member){return new HexuPointBatches(this).refresh(shop,member);}

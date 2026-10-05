@@ -9,7 +9,12 @@ import static com.ruoyi.hexu.BusinessException.require;
 public class HexuAssessment {
  private final HexuStore db;
  public HexuAssessment(HexuStore db){this.db=db;}
- public static void validate(Map<String,Object>b){validatePeriod(b);require(number(b,"periodMonths")>=1&&number(b,"periodMonths")<=24,"考核周期须为1至24个月");require(number(b,"salesThreshold")>=0&&number(b,"directCount")>=0&&number(b,"repeatRate")>=0&&number(b,"repeatRate")<=100,"考核阈值不合法");require(Arrays.asList("AND","OR","WEIGHTED").contains(str(b,"operator")),"指标关系须为AND、OR或WEIGHTED");require(!b.containsKey("teamDepth")||number(b,"teamDepth")>=1&&number(b,"teamDepth")<=100,"团队深度须为1至100");}
+ public static void validate(Map<String,Object>b){
+  if(b.containsKey("name"))require(!str(b,"name").trim().isEmpty()&&str(b,"name").trim().length()<=80,"考核方案名称须为1至80字");
+  for(String key:Arrays.asList("periodMonths","salesThreshold","directCount","repeatRate","effectiveAt"))require(!b.containsKey(key)||b.get(key)!=null,key+"不能为null，请填写有效数字");
+  if(b.containsKey("effectiveAt")){long time=number(b,"effectiveAt"),today=LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();require(time>=today&&time<LocalDate.of(2101,1,1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli(),"考核生效日期不能早于上海今天且须在2100年以内");}
+  validatePeriod(b);require(number(b,"periodMonths")>=1&&number(b,"periodMonths")<=24,"考核周期须为1至24个月");require(number(b,"salesThreshold")>=0&&number(b,"directCount")>=0&&number(b,"repeatRate")>=0&&number(b,"repeatRate")<=100,"考核阈值不合法");require(Arrays.asList("AND","OR","WEIGHTED").contains(str(b,"operator")),"指标关系须为AND、OR或WEIGHTED");require(!b.containsKey("teamDepth")||number(b,"teamDepth")>=1&&number(b,"teamDepth")<=100,"团队深度须为1至100");
+ }
  public static void validatePeriod(Map<String,Object>b){
   String kind=str(b,"periodKind");require(kind.isEmpty()||Arrays.asList("ROLLING","MONTH","QUARTER","YEAR","CUSTOM").contains(kind),"考核周期类型无效");
   if("CUSTOM".equals(kind)){LocalDate start=date(b,"startDate"),end=date(b,"endDate");require(end.isAfter(start)&&end.isBefore(start.plusYears(5)),"自定义考核日期须递增且不超过五年");}

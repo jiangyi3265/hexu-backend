@@ -8,4 +8,6 @@ public class HexuGatewayConfiguration {
  public PaymentGateway paymentGateway(){return new UnconfiguredPaymentGateway();}
  @Bean @ConditionalOnMissingBean(WechatIdentityGateway.class)
  public WechatIdentityGateway wechatIdentityGateway(){return new UnconfiguredWechatIdentityGateway();}
+ @Bean @ConditionalOnMissingBean(TrackingGateway.class)
+ public TrackingGateway trackingGateway(){return new TrackingGateway(){};}
 }

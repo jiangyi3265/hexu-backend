@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingPathVariableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import com.ruoyi.common.constant.HttpStatus;
 import com.ruoyi.common.core.domain.AjaxResult;
@@ -28,6 +29,7 @@ import com.ruoyi.common.utils.html.EscapeUtil;
 public class GlobalExceptionHandler
 {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final String SERVER_ERROR_MESSAGE = "服务暂不可用，请稍后重试";
 
     /**
      * 权限校验异常
@@ -94,22 +96,24 @@ public class GlobalExceptionHandler
      * 拦截未知的运行时异常
      */
     @ExceptionHandler(RuntimeException.class)
+    @ResponseStatus(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
     public AjaxResult handleRuntimeException(RuntimeException e, HttpServletRequest request)
     {
         String requestURI = request.getRequestURI();
         log.error("请求地址'{}',发生未知异常.", requestURI, e);
-        return AjaxResult.error(e.getMessage());
+        return AjaxResult.error(SERVER_ERROR_MESSAGE);
     }
 
     /**
      * 系统异常
      */
     @ExceptionHandler(Exception.class)
+    @ResponseStatus(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
     public AjaxResult handleException(Exception e, HttpServletRequest request)
     {
         String requestURI = request.getRequestURI();
         log.error("请求地址'{}',发生系统异常.", requestURI, e);
-        return AjaxResult.error(e.getMessage());
+        return AjaxResult.error(SERVER_ERROR_MESSAGE);
     }
 
     /**
