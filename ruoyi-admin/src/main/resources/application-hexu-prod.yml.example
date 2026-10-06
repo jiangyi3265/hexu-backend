@@ -1,0 +1,21 @@
+# 正式环境叠加在 druid 配置上；启动参数：--spring.profiles.active=druid,hexu-prod
+server:
+  address: 127.0.0.1
+  port: 8080
+spring:
+  datasource:
+    druid:
+      master:
+        url: jdbc:mysql://127.0.0.1:${HEXU_MYSQL_PORT:3306}/hexu_integration?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&forceConnectionTimeZoneToSession=true
+        username: ${HEXU_MYSQL_USER:hexu_integration}
+        password: ${HEXU_MYSQL_PASSWORD}
+hexu:
+  sandbox:
+    enabled: false
+  demo:
+    enabled: ${HEXU_DEMO_ENABLED:false}
+  sensitive-key: ${HEXU_SENSITIVE_KEY}
+  wechat-pay:
+    notify-url: https://fenxiao.oksja.cn/hexu/channel/notify
+swagger:
+  enabled: false

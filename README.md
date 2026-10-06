@@ -82,6 +82,14 @@ Invoke-RestMethod http://127.0.0.1:8088/hexu/app/shops
 
 启动另外两个仓库即可联调。`hexu-dev` 的身份和渠道模拟入口仅用于本机，运行目录 `.hexu-local` 包含密钥、备份等，不得提交或公开。正式环境需提供自己的配置并关闭开发配置；真实微信和支付渠道尚需接入。
 
+### 指定域名的服务器配置
+
+- 小程序及 H5 使用 `https://fenxiao.oksja.cn`，接口由该域名的 `/hexu/` 转发到后端。
+- 管理后台使用 `https://fenxiao.web.oksja.cn`，其 `/prod-api/` 转发到同一后端，并去掉此前缀。
+- 现有服务器的 Nginx 站点扩展分别使用 `deploy/nginx-fenxiao-app.conf` 和 `deploy/nginx-fenxiao-admin.conf`，将接口代理到本机 8093。管理后台静态包位于 `/www/wwwroot/fenxiao.web.oksja.cn/menu-default-20261006`。
+- 正式后端叠加 `application-hexu-prod.yml`，连接 `hexu_integration` 的 MySQL 3306。服务器使用 `/www/server/fenxiao/.env.production` 提供密码和密钥，使用独立的 `fenxiao-java.service` 与 `deploy/start-fx.sh` 选用 JDK 17，以 `druid,hexu-prod` 启动；不改变全局 Java 8。部署包及具体步骤见 `dist/fx-java-db-hexu-20261005/README-DEPLOY.txt`。
+- 发布前将 `https://fenxiao.oksja.cn` 加入微信公众平台的 request、uploadFile、downloadFile 合法域名，并核对 DNS、HTTPS 证书和网关回执。
+
 ### 业务测试
 
 ```powershell

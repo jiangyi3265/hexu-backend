@@ -1,0 +1,18 @@
+[Unit]
+Description=Fenxiao Java API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/fenxiao.java
+Environment=HEXU_ENV_FILE=/www/server/fenxiao/.env.production
+ExecStart=/bin/bash /www/wwwroot/fenxiao.java/start-fx.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/www/wwwroot/fenxiao.java/log.txt
+StandardError=append:/www/wwwroot/fenxiao.java/log.txt
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 package com.ruoyi.hexu;
 import com.ruoyi.common.annotation.Anonymous;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import javax.servlet.http.HttpServletRequest;
 import java.util.*;
@@ -7,10 +8,13 @@ import static com.ruoyi.hexu.HexuStore.*;
 import static com.ruoyi.hexu.BusinessException.require;
 @Anonymous @RestController @RequestMapping("/hexu/app")
 public class HexuAppController {
+    @Value("${hexu.demo.enabled:false}") private boolean demoEnabled;
+    @Value("${hexu.wechat-pay.enabled:false}") private boolean realPaymentEnabled;
     private final HexuIdentity auth;private final HexuStore db;private final HexuCatalogService catalog;private final HexuOrderService orders;private final HexuFinanceService finance;private final HexuWorkflowService workflow;private final HexuCommands commands;private final HexuAccountService accounts;private final HexuPolicies policies;private final HexuUiConfigService uiConfig;
     public HexuAppController(HexuIdentity auth,HexuStore db,HexuCatalogService catalog,HexuOrderService orders,HexuFinanceService finance,HexuWorkflowService workflow,HexuCommands commands,HexuAccountService accounts,HexuPolicies policies,HexuUiConfigService uiConfig){this.accounts=accounts;this.auth=auth;this.db=db;this.catalog=catalog;this.orders=orders;this.finance=finance;this.workflow=workflow;this.commands=commands;this.policies=policies;this.uiConfig=uiConfig;}
     static Map<String,Object> ok(Object value){return map("code",200,"data",value);}
     @GetMapping("/shops") public Object shops(){return ok(catalog.shops());}
+    @GetMapping("/channel-mode") public Object channelMode(){return ok(map("demo",demoEnabled&&!realPaymentEnabled));}
     @GetMapping("/guest/products") public Object guestProducts(@RequestParam long shopId){return ok(catalog.guestProducts(shopId));}
     /**
      * Public storefront configuration.  It is deliberately read from the

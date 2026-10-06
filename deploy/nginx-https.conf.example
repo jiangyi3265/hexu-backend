@@ -1,0 +1,51 @@
+# 将证书路径和静态目录替换为服务器上的实际路径，再放入 nginx 的 conf.d。
+server {
+    listen 80;
+    server_name fenxiao.oksja.cn fenxiao.web.oksja.cn;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name fenxiao.oksja.cn;
+    ssl_certificate /etc/letsencrypt/live/fenxiao.oksja.cn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fenxiao.oksja.cn/privkey.pem;
+    root /srv/hexu/app;
+    index index.html;
+    client_max_body_size 20m;
+
+    location /hexu/ {
+        proxy_pass http://127.0.0.1:8093;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name fenxiao.web.oksja.cn;
+    ssl_certificate /etc/letsencrypt/live/fenxiao.web.oksja.cn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fenxiao.web.oksja.cn/privkey.pem;
+    root /srv/hexu/admin;
+    index index.html;
+    client_max_body_size 20m;
+
+    location /prod-api/ {
+        # 末尾斜杠将 /prod-api/ 前缀去掉，后端收到原始 /hexu/ 等路径。
+        proxy_pass http://127.0.0.1:8093/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

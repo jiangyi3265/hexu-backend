@@ -46,11 +46,58 @@ class HexuBusinessTest {
  @Autowired DataSource ds;@Autowired HexuStore db;@Autowired HexuCatalogService catalog;@Autowired HexuOrderService orders;@Autowired HexuFinanceService finance;@Autowired HexuWorkflowService workflow;@Autowired HexuCommands commands;
  @Autowired HexuAgencyService agency; @Autowired HexuAccountService accounts; @Autowired HexuChannelInbox inbox;
  @Autowired HexuWechatController wechat;
+ @Autowired HexuIdentity identity;
  final Actor customer=new Actor(201,false,false),owner=new Actor(101,false,false),platform=new Actor(1,true,true),c1=new Actor(104,false,false);
  @BeforeEach void reset(){db.jdbc().execute("DROP ALL OBJECTS");ResourceDatabasePopulator seed=new ResourceDatabasePopulator(new ClassPathResource("db/hexu-schema.sql"),new ClassPathResource("db/hexu-seed.sql"));seed.setSqlScriptEncoding("UTF-8");seed.execute(ds);HexuTestJson.register(db.jdbc());}
  Map<String,Object> body(String sku,int qty){return HexuOrderConsentFixture.accepted(db,2,map("items",Collections.singletonList(map("id",sku,"qty",qty)),"address",map("name","测试收货人","detail","测试地址")));}
  String create(int qty){return str(orders.create(customer,2,body("stapler",qty)),"id");}
  void pay(String id){Map<String,Object>p=orders.payment(customer,id);orders.paymentConfirmed(str(p,"id"),str(p,"merchant_no"),number(p,"amount"),"CHANNEL-"+id);}
+ @Test void onlineDemoPaymentIsBoundToTheBuyerAndAuditedOnce(){
+  String order=create(1);Map<String,Object>payment=orders.payment(customer,order);
+  HexuDemoController demo=new HexuDemoController(identity,db,orders);
+  org.springframework.mock.web.MockHttpServletRequest other=new org.springframework.mock.web.MockHttpServletRequest();
+  other.addHeader("Authorization","Bearer "+identity.session(owner.id));
+  assertThrows(BusinessException.class,()->demo.confirmPayment(other,str(payment,"id")));
+  assertEquals("UNPAID",db.one("select status from hx_order where id=?",order).get("status"));
+  org.springframework.mock.web.MockHttpServletRequest buyer=new org.springframework.mock.web.MockHttpServletRequest();
+  buyer.addHeader("Authorization","Bearer "+identity.session(customer.id));
+  demo.confirmPayment(buyer,str(payment,"id"));demo.confirmPayment(buyer,str(payment,"id"));
+  assertEquals("PAID",db.one("select status from hx_order where id=?",order).get("status"));
+  assertEquals("DEMO-"+payment.get("id"),db.one("select channel_ref from hx_payment where id=?",payment.get("id")).get("channel_ref"));
+  assertEquals(1,db.jdbc().queryForObject("select count(*) from hx_audit where action='DEMO_PAYMENT' and reference_id=?",Integer.class,payment.get("id")));
+ }
+ @Test void onlineDemoRefundCannotRefundAnExistingNonDemoPayment(){
+  HexuDemoPaymentGateway demo=new HexuDemoPaymentGateway(db,finance);
+  String realOrder=create(1);pay(realOrder);
+  long realLine=number(db.one("select id from hx_order_line where order_id=?",realOrder),"id");
+  String realRefund=str(finance.refundApply(customer,realOrder,map("lineId",realLine,"qty",1,"type","REFUND_ONLY","reason","测试退款")),"id");
+  finance.refundReview(owner,realRefund,map("approve",true));
+  Map<String,Object> real=db.one("select * from hx_refund where id=?",realRefund);
+  assertThrows(BusinessException.class,()->demo.submitRefund(real,str(db.one("select merchant_no from hx_order where id=?",realOrder),"merchant_no")));
+  assertEquals("APPROVED",db.one("select status from hx_refund where id=?",realRefund).get("status"));
+
+  String order=create(1);Map<String,Object>payment=orders.payment(customer,order);
+  orders.paymentConfirmed(str(payment,"id"),str(payment,"merchant_no"),number(payment,"amount"),"DEMO-"+payment.get("id"));
+  long line=number(db.one("select id from hx_order_line where order_id=?",order),"id");
+  String refund=str(finance.refundApply(customer,order,map("lineId",line,"qty",1,"type","REFUND_ONLY","reason","演示退款")),"id");
+  finance.refundReview(owner,refund,map("approve",true));
+  Map<String,Object> row=db.one("select * from hx_refund where id=?",refund);
+  assertEquals("SUCCESS",demo.submitRefund(row,str(payment,"merchant_no")).get("status"));
+  assertEquals("SUCCESS",demo.submitRefund(row,str(payment,"merchant_no")).get("status"));
+  assertEquals(1,db.jdbc().queryForObject("select count(*) from hx_audit where action='DEMO_REFUND' and reference_id=?",Integer.class,refund));
+ }
+ @Test void demoPayoutKeepsReviewReasonAndMarksTheResultAsSimulated(){
+  String order=create(1);pay(order);orders.ship(owner,order,map("carrier","顺丰","tracking","SF123456789"));orders.receive(customer,order);
+  String id=str(finance.withdraw(c1,2,map("amount",1000,"channel","BANK","accountRef","BANK104")),"id");
+  finance.reviewWithdrawal(owner,id,true,"财务审核通过");
+  HexuDemoPaymentGateway demo=new HexuDemoPaymentGateway(db,finance);
+  Map<String,Object> row=db.one("select * from hx_withdrawal where id=?",id);
+  Map<String,Object> result=demo.submitPayout(row,str(row,"merchant_no"));
+  assertEquals("PAID",result.get("status"));
+  assertEquals("财务审核通过",db.one("select reason from hx_withdrawal where id=?",id).get("reason"));
+  assertEquals("演示到账，未发生真实转账",db.one("select payout_reason from hx_withdrawal where id=?",id).get("payout_reason"));
+  assertEquals(1,db.jdbc().queryForObject("select count(*) from hx_audit where action='DEMO_PAYOUT' and reference_id=?",Integer.class,id));
+ }
  void complete(String id){pay(id);orders.ship(owner,id,map("carrier","顺丰","tracking","SF123456789"));orders.receive(customer,id);}
  long wallet(long member){return db.jdbc().queryForObject("select available from hx_wallet where shop_id=2 and member_id=?",Long.class,member);}
  @Test void pricesAreServerScoped(){for(long[] test:new long[][]{{101,600},{102,800},{103,1000},{201,2000}}){Map<String,Object>p=catalog.products(new Actor(test[0],false,false),2,false).stream().filter(x->"stapler".equals(x.get("id"))).findFirst().get();assertEquals(test[1],number(p,"price"));assertEquals(2000,number(p,"retailPrice"));assertFalse(p.containsKey("owner_price"));assertFalse(p.containsKey("center_price"));}assertThrows(BusinessException.class,()->catalog.products(owner,3,true));}
