@@ -28,7 +28,10 @@ public class HexuAgencyService {
   List<Long> members=new ArrayList<>();for(Object id:(List<Object>)b.get("memberIds"))members.add(Long.valueOf(id.toString()));List<Long> actual=new ArrayList<>();for(long id:agents)for(Map<String,Object>x:db.jdbc().queryForList("select member_id from hx_binding where shop_id=? and agent_id=?",source,id))actual.add(number(x,"member_id"));require(new HashSet<>(actual).equals(new HashSet<>(members)),"客户名单已变化，须重新审核");
   for(long member:members){require(db.optional("select * from hx_binding where shop_id=? and member_id=?",target,member)==null,"目标商城已有客户绑定");db.jdbc().update("update hx_binding set shop_id=?,bound_at=CURRENT_TIMESTAMP where shop_id=? and member_id=?",target,source,member);}
   if(root.get("parent_id")!=null){Map<String,Object>parent=db.one("select * from hx_agent where id=?",root.get("parent_id"));require(number(parent,"rank_no")==number(root,"rank_no"),"独立商城只保留已审核的直接同级分红关系");db.jdbc().update("insert into hx_document(id,shop_id,member_id,kind,status,body_json) values(?,?,?,'peer_authorization','ACTIVE',?)",id("PEER"),target,parent.get("member_id"),db.json(map("childAgentId",rootId,"parentAgentId",parent.get("id"),"migrationId",ref)));}
-  for(long id:agents)db.jdbc().update("update hx_agent set shop_id=? where id=?",target,id);
+  for(long id:agents){
+   db.jdbc().update("update hx_agent set shop_id=? where id=?",target,id);
+   db.jdbc().update("update hx_agent_region set shop_id=? where shop_id=? and agent_id=?",target,source,id);
+  }
   db.jdbc().update("update hx_document set status='APPLIED',updated_at=CURRENT_TIMESTAMP where id=?",ref);db.audit(new Actor(number(d,"reviewer"),true,true),source,"TEAM_MIGRATION_APPLIED",ref,null,b);
  }
  @Transactional public void applyDue(){for(Map<String,Object>d:db.jdbc().queryForList("select id from hx_document where kind='team_migration' and status='SCHEDULED' order by created_at limit 100"))apply(str(d,"id"));}

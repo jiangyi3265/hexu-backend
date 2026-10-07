@@ -68,9 +68,27 @@ class HexuProfileTest {
     @Test void defaultsUseRealMemberFieldsAndNoInventedPersonalDetails(){
         Map<String,Object> profile=profiles.read(customer);
         assertEquals("林小禾",profile.get("name"));assertEquals("13888885678",profile.get("phone"));
+        assertEquals("13888885678",profile.get("contactPhone"));
         for(String key:Arrays.asList("gender","birthday","signature","avatarId"))assertEquals("",profile.get(key));
         assertEquals(Collections.emptyList(),profile.get("region"));
         assertThrows(BusinessException.class,()->profiles.read(new Actor(201,true,true)));
+    }
+    @Test void manualContactPhonePersistsWithoutClaimingVerifiedPhone(){
+        Map<String,Object> saved=profiles.save(customer,map("contactPhone"," 13900139000 "));
+        assertEquals("13900139000",saved.get("contactPhone"));
+        assertEquals("13888885678",saved.get("phone"));
+        assertEquals("13888885678",db.one("select phone from hx_member where id=?",customer.id).get("phone"));
+        assertEquals("13900139000",profiles.read(customer).get("contactPhone"));
+        assertFalse(((Map<?,?>)profiles.managementRead(owner,2,customer.id).get("profile")).containsKey("contactPhone"));
+        assertEquals("",profiles.save(customer,map("contactPhone","")).get("contactPhone"));
+        assertEquals("13888885678",profiles.read(customer).get("phone"));
+    }
+    @Test void invalidManualContactPhoneDoesNotWriteProfileOrAudit(){
+        int before=db.jdbc().queryForObject("select count(*) from hx_audit where actor_id=? and action='SAVE_profile'",Integer.class,customer.id);
+        for(Object phone:Arrays.asList("12900139000","1390013900","139001390000","13900139a00",123))
+            assertThrows(BusinessException.class,()->profiles.save(customer,map("contactPhone",phone)));
+        assertEquals(before,db.jdbc().queryForObject("select count(*) from hx_audit where actor_id=? and action='SAVE_profile'",Integer.class,customer.id));
+        assertEquals(0,db.jdbc().queryForObject("select count(*) from hx_document where member_id=? and kind='profile'",Integer.class,customer.id));
     }
     @Test void allFieldsPersistAndRepeatedSavesHaveOneAccountWideRecord(){
         Map<String,Object> first=profiles.save(customer,details());

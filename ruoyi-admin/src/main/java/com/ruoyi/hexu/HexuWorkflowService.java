@@ -366,6 +366,14 @@ public class HexuWorkflowService {
                 db.jdbc().update("update hx_document set body_json=? where id=?",db.json(b),id);
                 body.put("resolvedParentId",parent);
                 db.jdbc().update("insert into hx_agent(member_id,shop_id,parent_id,rank_no) values(?,?,?,?)",member,shop,parent,rank);
+                if(body.containsKey("regions")){
+                    require(body.get("regions") instanceof List,"经营区域格式无效");
+                    List<?> regions=(List<?>)body.get("regions");
+                    if(!regions.isEmpty()){
+                        long agentId=number(db.one("select id from hx_agent where member_id=? and shop_id=?",member,shop),"id");
+                        new HexuAgentDirectory(db).setRegions(a,shop,agentId,regions,"代理申请审核确认经营区域");
+                    }
+                }
             }
             else if("migration".equals(kind)){if(number(b,"targetShopId")!=shop)db.platform(a);String date=migrationDate(b);b.put("effectiveAt",date);long effective=date.isEmpty()?0:java.sql.Timestamp.valueOf(date).getTime();if(effective>System.currentTimeMillis()){decision="SCHEDULED";db.jdbc().update("update hx_document set body_json=? where id=?",db.json(b),id);}else applyBinding(a,d,b);}
             else if("cross_purchase".equals(kind)){if(body.containsKey("approvedExpiresAt")){long expires=number(body,"approvedExpiresAt");require(expires>System.currentTimeMillis()&&expires<=number(b,"expiresAt"),"审核只能收紧申请的有效期");b.put("requestedExpiresAt",b.get("expiresAt"));b.put("expiresAt",expires);}if(body.get("approvedItems") instanceof List){List<?> approved=(List<?>)body.get("approvedItems");require(!approved.isEmpty(),"授权商品不能为空");List<Map<String,Object>>requested=(List<Map<String,Object>>)b.get("items");Set<String>seen=new HashSet<>();for(Object raw:approved){require(raw instanceof Map,"授权商品格式无效");Map<String,Object>item=(Map<String,Object>)raw;require(seen.add(str(item,"skuId"))&&number(item,"qty")>0,"授权商品重复或数量无效");Map<String,Object>original=requested.stream().filter(x->str(x,"skuId").equals(str(item,"skuId"))).findFirst().orElseThrow(()->new BusinessException("不能授权申请之外的商品"));require(number(item,"qty")<=number(original,"qty"),"授权数量不能超过申请范围");}b.put("requestedItems",requested);b.put("items",approved);}HexuCrossPurchase.validate(db,shop,b);Map<String,Object> source=db.agent(member,number(b,"sourceShopId"));require(source!=null&&number(b,"sourceShopId")!=shop,"请提供有效的原商城代理身份");long expires=number(b,"expiresAt");require(expires>System.currentTimeMillis()&&expires<=System.currentTimeMillis()+366L*86400000,"跨店采购授权有效期须在一年以内");b.put("authorizedRank",source.get("rank_no"));db.jdbc().update("update hx_document set body_json=? where id=?",db.json(b),id);}

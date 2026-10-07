@@ -24,6 +24,15 @@ final class HexuRegions {
 
     static String canonical(String value){return String.join(" ",value.trim().split("\\s+"));}
 
+    static List<String> options(String query){
+        String term=query==null?"":query.trim();
+        if(term.length()<2)return Collections.emptyList();
+        List<String> matches=new ArrayList<>();
+        for(String path:PATHS)if(path.contains(term))matches.add(path);
+        Collections.sort(matches);
+        return matches.size()>50?matches.subList(0,50):matches;
+    }
+
     private static Set<String> load(){
         // @vant/area-data 2.2.0, MIT; see hexu-regions-LICENSE.txt.
         try(InputStream input=HexuRegions.class.getResourceAsStream("/hexu-regions.json")){
