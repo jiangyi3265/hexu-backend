@@ -59,6 +59,15 @@ public class HexuAgentDirectory {
 
     public Map<String,Object> children(Actor actor,long shop,long parentId,long afterId,int requested){
         canRead(actor,shop);
+        return listChildren(shop,parentId,afterId,requested);
+    }
+
+    public Map<String,Object> ownChildren(Actor actor,long shop,long parentId,long afterId,int requested){
+        requireTeamAgent(actor,shop,parentId);
+        return listChildren(shop,parentId,afterId,requested);
+    }
+
+    private Map<String,Object> listChildren(long shop,long parentId,long afterId,int requested){
         require(parentId>=0&&afterId>=0,"代理编号或游标无效");
         if(parentId>0)agent(shop,parentId);
         int size=pageSize(requested);
@@ -96,6 +105,28 @@ public class HexuAgentDirectory {
 
     public Map<String,Object> detail(Actor actor,long shop,long id){
         canRead(actor,shop);
+        return readDetail(shop,id);
+    }
+
+    public Map<String,Object> ownDetail(Actor actor,long shop,long id){
+        requireTeamAgent(actor,shop,id);
+        return readDetail(shop,id);
+    }
+
+    private void requireTeamAgent(Actor actor,long shop,long id){
+        Map<String,Object> self=db.agent(actor.id,shop);
+        require(self!=null&&id>0,"您尚未取得本店代理身份");
+        long selfId=number(self,"id"),current=id;
+        Set<Long> seen=new HashSet<>();
+        while(current>0&&seen.add(current)&&seen.size()<=100){
+            if(current==selfId)return;
+            Map<String,Object> node=db.optional("select parent_id from hx_agent where shop_id=? and id=?",shop,current);
+            current=node==null||node.get("parent_id")==null?0:number(node,"parent_id");
+        }
+        throw new BusinessException("只能查看本人及下级代理");
+    }
+
+    private Map<String,Object> readDetail(long shop,long id){
         agent(shop,id);
         Map<String,Object> node=node(db.one(NODE_COLUMNS+"where a.shop_id=? and a.id=?",shop,id));
         addRegions(shop,Collections.singletonList(node));

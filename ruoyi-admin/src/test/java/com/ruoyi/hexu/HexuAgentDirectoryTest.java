@@ -121,6 +121,43 @@ class HexuAgentDirectoryTest {
     }
 
     @Test
+    void agentTeamRoutesExposeOnlyOwnBranch() throws Exception {
+        db.jdbc().update("insert into hx_agent(id,member_id,shop_id,parent_id,rank_no) values(5,202,2,2,1)");
+        HexuIdentity identity=new HexuIdentity(db);
+        MockMvc http=MockMvcBuilders.standaloneSetup(new HexuAppAgentTeamController(identity,directory))
+            .setControllerAdvice(new HexuErrors()).build();
+        String agentToken="Bearer "+identity.session(103);
+
+        http.perform(get("/hexu/app/agent-team/3")
+                .header("Authorization",agentToken).param("shopId","2"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.name").value("C 云代理"))
+            .andExpect(jsonPath("$.data.childCount").value(1));
+        http.perform(get("/hexu/app/agent-team/4")
+                .header("Authorization",agentToken).param("shopId","2"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.name").value("C1 云代理"));
+        http.perform(get("/hexu/app/agent-team/children")
+                .header("Authorization",agentToken).param("shopId","2").param("parentId","3"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[0].id").value(4));
+        http.perform(get("/hexu/app/agent-team/2")
+                .header("Authorization",agentToken).param("shopId","2"))
+            .andExpect(status().isBadRequest());
+        http.perform(get("/hexu/app/agent-team/5")
+                .header("Authorization",agentToken).param("shopId","2"))
+            .andExpect(status().isBadRequest());
+        http.perform(get("/hexu/app/agent-team/children")
+                .header("Authorization",agentToken).param("shopId","2").param("parentId","1"))
+            .andExpect(status().isBadRequest());
+        http.perform(get("/hexu/app/agent-team/3")
+                .header("Authorization",agentToken).param("shopId","3"))
+            .andExpect(status().isBadRequest());
+        http.perform(get("/hexu/app/agent-team/3").param("shopId","2"))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void adminRoutesSaveAndFilterRegionsWithStableJsonFields() throws Exception {
         HexuIdentity identity=new HexuIdentity(db){
             @Override public Actor admin(){return owner;}
