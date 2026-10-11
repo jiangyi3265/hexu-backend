@@ -1,0 +1,35 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
+import {spawnSync} from 'node:child_process'
+import {randomUUID} from 'node:crypto'
+import assert from 'node:assert/strict'
+import {hexuFetch} from './hexu-client-contract.mjs'
+import {resultsDir} from './paths.mjs'
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..')
+const settings=await fs.readFile(path.join(root,'ruoyi-admin/src/main/resources/application-druid.yml'),'utf8')
+const username=settings.match(/^\s+username:\s*(.+)$/m)[1].trim().replace(/^['"]|['"]$/g,'')
+const password=settings.match(/^\s+password:\s*(.*)$/m)[1].trim().replace(/^['"]|['"]$/g,'')
+const mysql='D:/MySQL Server 8.0/bin/mysql.exe'
+function sql(statement){const r=spawnSync(mysql,['-u',username,'-h','127.0.0.1','--default-character-set=utf8mb4','-N','hexu_integration'],{input:"SET time_zone='+00:00';\n"+statement,encoding:'utf8',windowsHide:true,env:{...process.env,MYSQL_PWD:password}});if(r.status!==0)throw Error('Isolated fixture SQL failed: '+r.stderr);return r.stdout.trim()}
+assert.equal(sql('SELECT DATABASE();'),'hexu_integration')
+const key=(await fs.readFile(path.join(root,'.hexu-local/dev-key.txt'),'utf8')).trim()
+
+const shop=Date.now(),customerId=shop+1,centerId=shop+2,target=shop+3,checks=[];
+async function call(p,{token,data,dev=false}={}){const r=await hexuFetch('http://127.0.0.1:8088'+p,{method:data?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(dev?{'X-Hexu-Dev-Key':key}:{}),'Idempotency-Key':randomUUID()},...(data?{body:JSON.stringify(data)}:{})});const b=await r.json();if(!r.ok||b.code!==200)throw Error(p+': '+b.msg);return b.data}
+const login=async memberId=>(await call('/hexu/dev/login',{data:{memberId},dev:true})).token;
+const cmd=(token,op,data={},management=false)=>call('/hexu/app/'+(management?'management/':'commands/')+op,{token,data:{shopId:shop,...data}});
+sql("INSERT INTO hx_member(id,name,authorized) VALUES ("+customerId+",'交接联调客户',true),("+centerId+",'考核联调中心',true); INSERT INTO hx_shop(id,name,county,kind,owner_id,merchant_no,payment_ready,settings) VALUES ("+shop+",'考核交接源商城','测试县域','DEALER',101,'DEV_HANDOVER_A',true,'{}'),("+target+",'考核交接目标商城','测试县域','DEALER',101,'DEV_HANDOVER_B',true,'{}'); INSERT INTO hx_agent(member_id,shop_id,rank_no,status,approved_at) VALUES (101,"+shop+",3,'ACTIVE','2025-01-01'),(101,"+target+",3,'ACTIVE','2025-01-01'); INSERT INTO hx_agent(member_id,shop_id,parent_id,rank_no,status,approved_at) SELECT "+centerId+","+shop+",id,2,'ACTIVE','2025-01-01' FROM hx_agent WHERE member_id=101 AND shop_id="+shop+"; INSERT INTO hx_sku(id,shop_id,name,spec,asset,retail,cloud_price,center_price,owner_price,available) SELECT id,"+shop+",name,spec,asset,retail,cloud_price,center_price,owner_price,100 FROM hx_sku WHERE shop_id=2 AND id='stapler'; INSERT INTO hx_sku(id,shop_id,name,spec,asset,retail,cloud_price,center_price,owner_price,available) SELECT id,"+target+",name,spec,asset,retail,cloud_price,center_price,owner_price,5 FROM hx_sku WHERE shop_id=2 AND id='stapler';");
+const [owner,customer,center]=await Promise.all([login(101),login(customerId),login(centerId)]);const adminState=JSON.parse(await fs.readFile(path.join(root,'.hexu-local/admin-auth.json'),'utf8')),admin=adminState.cookies.find(c=>c.name==='Admin-Token').value;
+try{
+ await cmd(customer,'bind');await cmd(owner,'document-save',{kind:'downgrade_rule',name:'季度考核联调',enabled:true,rank:2,failurePeriods:2,firstPeriodStart:(d=>new Date(Date.UTC(d.getUTCFullYear(),Math.floor(d.getUTCMonth()/3)*3-6,1)).toISOString().slice(0,10))(new Date()),periodKind:'QUARTER',periodMonths:3,salesThreshold:1000,directCount:0,repeatRate:0,operator:'AND',salesEnabled:true,peopleEnabled:false,repeatEnabled:false},true);
+ assert.equal((await cmd(owner,'assessment-run',{},true)).periodsCreated,2);assert.equal((await cmd(owner,'assessment-run',{},true)).periodsCreated,0);const records=await call('/hexu/app/management/documents_downgrade?shopId='+shop,{token:owner});assert.equal(records.length,1);assert.equal(records[0].body.failures,2);
+ const input={items:[{id:'stapler',qty:1}],address:{name:'联调中心',phone:'13800000000',region:'测试县域',detail:'只联调，不发货'}};const old=await cmd(center,'order-create',input);assert.equal(old.total,800);
+ await cmd(owner,'document-review',{id:records[0].id,decision:'APPROVED',reason:'已核对连续两个季度未达标，无经营商城'},true);const current=await cmd(center,'order-create',input);assert.equal(current.total,1000);assert.equal((await call('/hexu/app/orders/'+old.id,{token:center})).total,800);checks.push('两个完整季度连续未达标生成一张降级申请，重复核算不重复生成；审核后新单1000分，旧单800分不变');
+ const platform=await call('/hexu/admin/resources/assessmentPeriods?shopId='+shop,{token:admin});assert.equal(platform.length,2);await cmd(center,'order-cancel',{id:old.id});await cmd(center,'order-cancel',{id:current.id});
+ const proposal=await cmd(owner,'document-save',{kind:'shop_transfer',operation:'MERGE',targetShopId:target,reason:'同拥有者合并联调'},true);await call('/hexu/admin/commands/document-review',{token:admin,data:{shopId:shop,id:proposal.id,decision:'APPROVED',reason:'已复核库存、清零账务与团队清单',handoverConfirmed:true}});
+ assert.equal(Number(sql("SELECT available FROM hx_sku WHERE shop_id="+shop+" AND id='stapler';")),0);assert.equal(Number(sql("SELECT available FROM hx_sku WHERE shop_id="+target+" AND id='stapler';")),105);assert.equal(Number(sql('SELECT shop_id FROM hx_agent WHERE member_id='+centerId+';')),target);assert.equal(Number(sql('SELECT shop_id FROM hx_binding WHERE member_id='+customerId+';')),target);assert.equal((await call('/hexu/app/orders/'+old.id,{token:center})).shop_id,shop);checks.push('平台审核后合并库存双边流水、代理和客户关系；旧订单保留原商城及价格');
+ await cmd(owner,'stock-adjust',{shopId:target,skuId:'stapler',quantity:-105,reason:'联调库存出库处置'},true);const closing=await cmd(owner,'document-save',{shopId:target,kind:'shop_transfer',operation:'CLOSE',reason:'联调已结清后停业'},true);await call('/hexu/admin/commands/document-review',{token:admin,data:{shopId:target,id:closing.id,decision:'APPROVED',reason:'库存和账务均已处置',handoverConfirmed:true}});const closed=await call('/hexu/app/bootstrap?shopId='+target,{token:customer});assert.equal(closed.shop.status,'CLOSED');assert.equal(closed.products.length,0);assert.equal((await call('/hexu/app/orders/'+old.id,{token:center})).status,'CANCELLED');checks.push('停业须清结库存和账务，停业后不可购货，历史订单仍可查询');
+ const denied=await fetch('http://127.0.0.1:8088/hexu/admin/shops',{headers:{Authorization:'Bearer '+customer}});const deniedBody=await denied.json();assert.notEqual(deniedBody.code,200);checks.push('商城会话不能获得平台管理权限');
+ await fs.writeFile(path.join(resultsDir,'assessment-handover-result.json'),JSON.stringify({testedAt:new Date().toISOString(),shops:[shop,target],downgradeId:records[0].id,mergeId:proposal.id,closureId:closing.id,checks},null,2));console.log(JSON.stringify({passed:checks.length,checks}));
+}finally{sql("UPDATE hx_shop SET status='INACTIVE' WHERE id IN ("+shop+","+target+") AND status='ACTIVE';")}
