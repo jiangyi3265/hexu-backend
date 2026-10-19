@@ -15,6 +15,9 @@ hexu:
   demo:
     enabled: ${HEXU_DEMO_ENABLED:false}
   sensitive-key: ${HEXU_SENSITIVE_KEY}
+  wechat:
+    app-id: ${HEXU_WECHAT_APP_ID:}
+    app-secret: ${HEXU_WECHAT_APP_SECRET:}
   wechat-pay:
     notify-url: https://fenxiao.oksja.cn/hexu/channel/notify
 swagger:
