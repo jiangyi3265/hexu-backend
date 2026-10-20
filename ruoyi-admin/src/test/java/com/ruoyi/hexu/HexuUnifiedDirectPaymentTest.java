@@ -22,7 +22,11 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = HexuUnifiedDirectPaymentTest.Config.class)
@@ -63,6 +67,7 @@ class HexuUnifiedDirectPaymentTest {
       return new HexuOrderService(db, catalog);
     }
     @Bean HexuFinanceService finance(HexuStore db) { return new HexuFinanceService(db); }
+    @Bean HexuCommands commands(HexuStore db) { return new HexuCommands(db); }
     @Bean HexuChannelInbox inbox(HexuStore db, HexuOrderService orders,
         HexuFinanceService finance) {
       return new HexuChannelInbox(db, orders, finance);
@@ -75,6 +80,7 @@ class HexuUnifiedDirectPaymentTest {
   @Autowired HexuOrderService orders;
   @Autowired HexuFinanceService finance;
   @Autowired HexuChannelInbox inbox;
+  @Autowired HexuCommands commands;
 
   @BeforeEach
   void reset() {
@@ -167,6 +173,104 @@ class HexuUnifiedDirectPaymentTest {
     assertEquals(1, db.jdbc().queryForObject(
         "select count(*) from hx_ledger where reference_id=? and category='REFUND'",
         Integer.class, refundId));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void miniProgramHttpOrderPaymentAndRefundCompleteInLocalSandbox() throws Exception {
+    db.jdbc().update("update hx_shop set merchant_no=null,payment_ready=false where id=2");
+    db.jdbc().update("insert into hx_wechat_account(app_id,open_id,member_id) values(?,?,?)",
+        "wx-local-test", "openid-local-buyer", 201);
+    HexuIdentity identity = new HexuIdentity(db);
+    String buyerToken = identity.session(201);
+    String ownerToken = identity.session(101);
+    HexuAppController app = new HexuAppController(identity, db, null, orders, finance,
+        null, commands, null, null, null);
+    HexuSandboxPaymentGateway channel = new HexuSandboxPaymentGateway(db, finance);
+    HexuWechatController wechat = new HexuWechatController(
+        new UnconfiguredWechatIdentityGateway(), channel, identity, db, null, orders, null);
+    HexuDevController sandbox = new HexuDevController(identity, db, orders, finance);
+    MockMvc http = MockMvcBuilders.standaloneSetup(app, wechat, sandbox)
+        .setControllerAdvice(new HexuErrors()).build();
+
+    Map<String, Object> request = HexuOrderConsentFixture.accepted(db, 2,
+        map("shopId", 2, "items", List.of(map("id", "stapler", "qty", 1)),
+            "address", map("name", "合成收货人", "detail", "本地测试地址")));
+    Map<String, Object> quoted = (Map<String, Object>) jsonResponse(http.perform(
+        post("/hexu/app/quote").header("Authorization", "Bearer " + buyerToken)
+            .contentType("application/json").content(db.json(request)))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+    request.put("expectedTotal", quoted.get("total"));
+    Map<String, Object> created = (Map<String, Object>) jsonResponse(http.perform(
+        post("/hexu/app/commands/order-create")
+            .header("Authorization", "Bearer " + buyerToken)
+            .header("Idempotency-Key", "sandbox-order-001")
+            .contentType("application/json").content(db.json(request)))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+    String orderId = str(created, "id");
+    assertEquals("1900000001", str(created, "merchant_no"));
+    assertEquals("UNPAID", str(created, "status"));
+    assertEquals(319, number(db.one("select available from hx_sku where shop_id=? and id=?", 2, "stapler"), "available"));
+
+    Map<String, Object> pay = (Map<String, Object>) jsonResponse(http.perform(
+        post("/hexu/app/wechat/payment/" + orderId)
+            .header("Authorization", "Bearer " + buyerToken)
+            .with(req -> { req.setRemoteAddr("127.0.0.1"); return req; }))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+    assertEquals(true, pay.get("sandbox"));
+    assertEquals("AWAITING_SANDBOX_CONFIRMATION", pay.get("status"));
+    String paymentId = str(pay, "paymentId");
+    assertEquals(number(created, "total"), number(pay, "amount"));
+    assertEquals("1900000001", str(db.one(
+        "select merchant_no from hx_payment where id=?", paymentId), "merchant_no"));
+    for (int attempt = 0; attempt < 2; attempt++) {
+      http.perform(post("/hexu/dev/payment/" + paymentId)
+          .header("X-Hexu-Mp-Dev", "1")
+          .with(req -> { req.setRemoteAddr("127.0.0.1"); return req; }))
+          .andExpect(status().isOk());
+    }
+    assertEquals("PAID", str(db.one("select status from hx_order where id=?", orderId), "status"));
+    assertEquals(1, db.jdbc().queryForObject(
+        "select count(*) from hx_ledger where reference_id=? and category='RECEIPT'",
+        Integer.class, orderId));
+
+    long lineId = number(db.one("select id from hx_order_line where order_id=?", orderId), "id");
+    Map<String, Object> refund = (Map<String, Object>) jsonResponse(http.perform(
+        post("/hexu/app/commands/refund-apply")
+            .header("Authorization", "Bearer " + buyerToken)
+            .header("Idempotency-Key", "sandbox-refund-001")
+            .contentType("application/json")
+            .content(db.json(map("shopId", 2, "id", orderId, "lineId", lineId,
+                "qty", 1, "type", "REFUND_ONLY", "reason", "模拟售后"))))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+    String refundId = str(refund, "id");
+    http.perform(post("/hexu/app/management/refund-review")
+        .header("Authorization", "Bearer " + ownerToken)
+        .header("Idempotency-Key", "sandbox-review-001")
+        .contentType("application/json")
+        .content(db.json(map("shopId", 2, "id", refundId, "approve", true))))
+        .andExpect(status().isOk());
+    for (int attempt = 0; attempt < 2; attempt++) {
+      http.perform(post("/hexu/dev/refund/" + refundId)
+          .header("X-Hexu-Mp-Dev", "1")
+          .with(req -> { req.setRemoteAddr("127.0.0.1"); return req; }))
+          .andExpect(status().isOk());
+    }
+    assertEquals("SUCCESS", str(db.one("select status from hx_refund where id=?", refundId), "status"));
+    assertEquals("REFUNDED", str(db.one("select status from hx_order where id=?", orderId), "status"));
+    assertEquals(1, db.jdbc().queryForObject(
+        "select count(*) from hx_ledger where reference_id=? and category='REFUND'",
+        Integer.class, refundId));
+    assertEquals(1, db.jdbc().queryForObject(
+        "select count(*) from hx_audit where action='SANDBOX_PAYMENT' and reference_id=?",
+        Integer.class, paymentId));
+    assertEquals(1, db.jdbc().queryForObject(
+        "select count(*) from hx_audit where action='SANDBOX_REFUND' and reference_id=?",
+        Integer.class, refundId));
+  }
+
+  private Map<String, Object> jsonResponse(String body) throws Exception {
+    return new ObjectMapper().readValue(body, Map.class);
   }
 
   @Test
