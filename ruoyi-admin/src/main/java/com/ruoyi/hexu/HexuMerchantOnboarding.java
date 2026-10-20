@@ -23,6 +23,12 @@ public class HexuMerchantOnboarding {
   @Value("${hexu.wechat-pay.direct.merchant-id:}")
   private String companyMerchantNo;
 
+  @Value("${hexu.wechat-pay.all-shops-direct:false}")
+  private boolean allShopsDirect;
+
+  @Value("${hexu.wechat-pay.enabled:false}")
+  private boolean realPaymentEnabled;
+
   @Value("${hexu.sandbox.enabled:false}") private boolean sandboxEnabled;
   @Autowired(required = false) private Environment environment;
 
@@ -41,7 +47,7 @@ public class HexuMerchantOnboarding {
     Map<String, Object> row =
         db.optional("select * from hx_merchant_onboarding where shop_id=?", shop);
     Map<String, Object> s =
-        db.one("select kind,owner_id,merchant_no,payment_ready from hx_shop where id=?", shop);
+        db.one("select kind,owner_id,merchant_no,payment_ready,status from hx_shop where id=?", shop);
     boolean canManage = actor.platform || !actor.staff && actor.id == number(s, "owner_id");
     if (actor.staff && !actor.platform) {
       Map<String, Object> staff =
@@ -49,6 +55,16 @@ public class HexuMerchantOnboarding {
               "select role_code from hx_staff where user_id=? and shop_id=?", actor.id, shop);
       canManage = staff != null && "OWNER".equals(str(staff, "role_code"));
     }
+    if (realPaymentEnabled && allShopsDirect)
+      return map(
+          "shopId", shop,
+          "paymentMode", "DIRECT",
+          "sharedDirect", true,
+          "merchantNo", companyMerchantNo,
+          "appId", companyAppId,
+          "paymentReady", "ACTIVE".equals(str(s, "status")) && gateway.ready(companyMerchantNo),
+          "canManage", false,
+          "canVerify", false);
     if (row == null)
       return map(
           "shopId",
@@ -160,7 +176,17 @@ public class HexuMerchantOnboarding {
         && ((java.sql.Date) row.get("expires_at")).toLocalDate().isAfter(LocalDate.now());
   }
 
+  public String receivingMerchant(Map<String, Object> shop) {
+    return allShopsDirect ? companyMerchantNo : str(shop, "merchant_no");
+  }
+
   public void requireReady(long shop, String merchantNo) {
+    if (allShopsDirect) {
+      db.shop(shop);
+      require(merchantNo.equals(companyMerchantNo), "订单收款方式已变更，请重新下单");
+      require(gateway.ready(merchantNo), "公司统一收款渠道尚未就绪");
+      return;
+    }
     Map<String, Object> s =
         db.one("select kind,merchant_no,payment_ready from hx_shop where id=?", shop);
     require(

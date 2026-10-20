@@ -19,6 +19,15 @@ hexu:
     app-id: ${HEXU_WECHAT_APP_ID:}
     app-secret: ${HEXU_WECHAT_APP_SECRET:}
   wechat-pay:
+    enabled: ${HEXU_WECHAT_PAY_ENABLED:false}
+    all-shops-direct: ${HEXU_WECHAT_PAY_ALL_SHOPS_DIRECT:false}
     notify-url: https://fenxiao.oksja.cn/hexu/channel/notify
+    direct:
+      merchant-id: ${HEXU_WECHAT_PAY_DIRECT_MERCHANT_ID:}
+      merchant-serial: ${HEXU_WECHAT_PAY_DIRECT_MERCHANT_SERIAL:}
+      private-key-path: ${HEXU_WECHAT_PAY_DIRECT_PRIVATE_KEY_PATH:}
+      public-key-path: ${HEXU_WECHAT_PAY_DIRECT_PUBLIC_KEY_PATH:}
+      public-key-id: ${HEXU_WECHAT_PAY_DIRECT_PUBLIC_KEY_ID:}
+      api-v3-key: ${HEXU_WECHAT_PAY_DIRECT_API_V3_KEY:}
 swagger:
   enabled: false

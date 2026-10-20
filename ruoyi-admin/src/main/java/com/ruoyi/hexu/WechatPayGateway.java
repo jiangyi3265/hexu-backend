@@ -38,6 +38,9 @@ public class WechatPayGateway implements PaymentGateway {
   @Value("${hexu.wechat-pay.notify-url:}")
   private String notifyUrl;
 
+  @Value("${hexu.wechat-pay.all-shops-direct:false}")
+  private boolean allShopsDirect;
+
   @Value("${hexu.wechat-pay.direct.merchant-id:}")
   private String directId;
 
@@ -162,8 +165,9 @@ public class WechatPayGateway implements PaymentGateway {
         id);
   }
 
-  private boolean partner(Map<String, Object> payment) {
-    return "DEALER".equals(str(payment, "kind"));
+  boolean partner(Map<String, Object> payment) {
+    return "DEALER".equals(str(payment, "kind"))
+        && (directId.isEmpty() || !directId.equals(str(payment, "merchant_no")));
   }
 
   private String outTradeNo(String paymentId) {
@@ -184,10 +188,12 @@ public class WechatPayGateway implements PaymentGateway {
             && ((java.sql.Timestamp) payment.get("expires_at")).toInstant().isAfter(Instant.now()),
         "订单不可支付或已超时");
     Map<String, Object> shop =
-        db.one("select merchant_no,payment_ready from hx_shop where id=?", payment.get("shop_id"));
+        db.one("select merchant_no,payment_ready,status from hx_shop where id=?", payment.get("shop_id"));
+    boolean sharedDirect = allShopsDirect && !partner;
     require(
-        bool(shop, "payment_ready")
-            && merchant.equals(str(shop, "merchant_no"))
+        (sharedDirect
+                ? "ACTIVE".equals(str(shop, "status"))
+                : bool(shop, "payment_ready") && merchant.equals(str(shop, "merchant_no")))
             && (partner ? partnerConfigured() : directConfigured()),
         "商户收款尚未就绪");
     if (partner) {
