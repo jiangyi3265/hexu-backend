@@ -62,12 +62,19 @@ class HexuUnifiedDirectPaymentTest {
     @Bean HexuOrderService orders(HexuStore db, HexuCatalogService catalog) {
       return new HexuOrderService(db, catalog);
     }
+    @Bean HexuFinanceService finance(HexuStore db) { return new HexuFinanceService(db); }
+    @Bean HexuChannelInbox inbox(HexuStore db, HexuOrderService orders,
+        HexuFinanceService finance) {
+      return new HexuChannelInbox(db, orders, finance);
+    }
   }
 
   @Autowired DataSource dataSource;
   @Autowired HexuStore db;
   @Autowired HexuMerchantOnboarding onboarding;
   @Autowired HexuOrderService orders;
+  @Autowired HexuFinanceService finance;
+  @Autowired HexuChannelInbox inbox;
 
   @BeforeEach
   void reset() {
@@ -117,6 +124,49 @@ class HexuUnifiedDirectPaymentTest {
     ReflectionTestUtils.setField(gateway, "directId", "");
     assertFalse(gateway.partner(map("kind", "DIRECT", "merchant_no", "1900000001")));
     assertTrue(gateway.partner(map("kind", "DEALER", "merchant_no", "1900000002")));
+  }
+
+  @Test
+  void dealerPaymentAndRefundApplyOnceThroughCompanyMerchant() {
+    db.jdbc().update("update hx_shop set merchant_no=null,payment_ready=false where id=2");
+    Actor buyer = new Actor(201, false, false);
+    Actor owner = new Actor(101, false, false);
+    Map<String, Object> request = HexuOrderConsentFixture.accepted(db, 2,
+        map("shopId", 2, "items", List.of(map("id", "stapler", "qty", 1)),
+            "address", map("name", "合成收货人", "detail", "本地测试地址")));
+    Map<String, Object> order = orders.create(buyer, 2, request);
+    Map<String, Object> payment = orders.payment(buyer, str(order, "id"));
+    assertEquals("1900000001", str(payment, "merchant_no"));
+    String paymentId = str(payment, "id");
+    long amount = number(payment, "amount");
+
+    String paidEvent = inbox.accept(map("type", "PAYMENT_SUCCESS", "id", paymentId,
+        "merchantNo", "1900000001", "amount", amount, "channelRef", "SIMULATED-PAY"));
+    inbox.apply(paidEvent);
+    assertEquals("APPLIED", ((Map<?, ?>) inbox.apply(paidEvent)).get("status"));
+    assertEquals("PAID", str(db.one("select status from hx_order where id=?", order.get("id")), "status"));
+    assertEquals(1, db.jdbc().queryForObject(
+        "select count(*) from hx_ledger where reference_id=? and category='RECEIPT'",
+        Integer.class, order.get("id")));
+    assertThrows(BusinessException.class, () -> inbox.accept(map("type", "PAYMENT_SUCCESS",
+        "id", paymentId, "merchantNo", "1900000001", "amount", amount + 1,
+        "channelRef", "SIMULATED-PAY")));
+
+    long lineId = number(db.one("select id from hx_order_line where order_id=?", order.get("id")), "id");
+    Map<String, Object> refund = finance.refundApply(buyer, str(order, "id"),
+        map("lineId", lineId, "qty", 1, "type", "REFUND_ONLY", "reason", "模拟售后"));
+    String refundId = str(refund, "id");
+    finance.refundReview(owner, refundId, map("approve", true));
+    String refundEvent = inbox.accept(map("type", "REFUND_SUCCESS", "id", refundId,
+        "merchantNo", "1900000001", "amount", number(refund, "amount"),
+        "channelRef", "SIMULATED-REFUND"));
+    inbox.apply(refundEvent);
+    assertEquals("APPLIED", ((Map<?, ?>) inbox.apply(refundEvent)).get("status"));
+    assertEquals("SUCCESS", str(db.one("select status from hx_refund where id=?", refundId), "status"));
+    assertEquals("REFUNDED", str(db.one("select status from hx_order where id=?", order.get("id")), "status"));
+    assertEquals(1, db.jdbc().queryForObject(
+        "select count(*) from hx_ledger where reference_id=? and category='REFUND'",
+        Integer.class, refundId));
   }
 
   @Test
