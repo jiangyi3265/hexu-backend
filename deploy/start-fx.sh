@@ -25,9 +25,7 @@ if (( ${#HEXU_TOKEN_SECRET} < 32 || ${#HEXU_SENSITIVE_KEY} < 32 )); then
 fi
 
 java_major() {
-  local first
-  first="$("$1" -version 2>&1 | sed -n '1p')" || return 1
-  printf '%s\n' "$first" | sed -nE 's/.*version "([0-9]+).*/\1/p'
+  "$1" -version 2>&1 | sed -nE 's/.*version "([0-9]+).*/\1/p'
 }
 
 java_bin=''
